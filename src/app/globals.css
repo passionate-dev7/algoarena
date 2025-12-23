@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --background: 260 50% 10%;
+  /* Deep Purple/Void */
+  --foreground: 0 0% 100%;
+  --primary: 300 100% 50%;
+  /* Neon Pink */
+  --secondary: 180 100% 50%;
+  /* Cyan */
+  --accent: 45 100% 50%;
+  /* Gold */
+  --card: 260 50% 15%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-secondary: hsl(var(--secondary));
+  --color-accent: hsl(var(--accent));
+  --color-card: hsl(var(--card));
+  --font-pixel: "Courier New", monospace;
+  /* Fallback for Pixel Font */
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-pixel);
+  image-rendering: pixelated;
+  /* Essential for pixel art */
+}
+
+/* Pixel Art Utilities */
+.pixel-border {
+  box-shadow:
+    -4px 0 0 0 white,
+    4px 0 0 0 white,
+    0 -4px 0 0 white,
+    0 4px 0 0 white;
+  margin: 4px;
+}
+
+.pixel-btn {
+  background: var(--color-primary);
+  border: 4px solid white;
+  color: white;
+  text-transform: uppercase;
+  font-weight: bold;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.pixel-btn:active {
+  transform: translateY(4px);
+}
