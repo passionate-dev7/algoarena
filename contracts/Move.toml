@@ -4,7 +4,8 @@ version = "1.0.0"
 authors = []
 
 [addresses]
-algoarena = "0xBEEF"
+# Will be replaced with actual address during deployment
+algoarena = "0x8fe3cb1e702d46b0540757dcdbe0a1ea2d9d21ccca16bdd63910d0783d2c3288"
 
 [dev-addresses]
 

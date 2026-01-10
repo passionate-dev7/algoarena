@@ -52,7 +52,8 @@ module algoarena::arena {
     struct PlayerSession has key {
         player_address: address,
         hired_agents: vector<Agent>,
-        total_pnl: i64, // Can be negative
+        total_pnl: u64, // Absolute value of PnL
+        pnl_is_negative: bool, // True if PnL is negative
         wins: u64,
         losses: u64,
         points: u64,
@@ -78,7 +79,8 @@ module algoarena::arena {
         player: address,
         points: u64,
         wins: u64,
-        total_pnl: i64,
+        total_pnl: u64,
+        pnl_is_negative: bool,
     }
 
     // Global leaderboard
@@ -165,6 +167,7 @@ module algoarena::arena {
                 player_address: player_addr,
                 hired_agents: vector::empty<Agent>(),
                 total_pnl: 0,
+                pnl_is_negative: false,
                 wins: 0,
                 losses: 0,
                 points: 0,
@@ -305,10 +308,12 @@ module algoarena::arena {
     }
 
     /// Update player PnL after round (called by backend with verified results)
+    /// pnl_delta is the absolute value, pnl_is_positive indicates if gain or loss
     public entry fun update_player_pnl(
         admin: &signer,
         player: address,
-        pnl_delta: i64,
+        pnl_delta: u64,
+        pnl_is_positive: bool,
         won: bool
     ) acquires GameState, PlayerSession, Leaderboard {
         let admin_addr = signer::address_of(admin);
@@ -319,7 +324,36 @@ module algoarena::arena {
         assert!(exists<PlayerSession>(player), E_PLAYER_NOT_FOUND);
 
         let session = borrow_global_mut<PlayerSession>(player);
-        session.total_pnl = session.total_pnl + pnl_delta;
+
+        // Update PnL with sign handling
+        if (pnl_is_positive) {
+            if (session.pnl_is_negative) {
+                // Adding positive to negative
+                if (pnl_delta >= session.total_pnl) {
+                    session.total_pnl = pnl_delta - session.total_pnl;
+                    session.pnl_is_negative = false;
+                } else {
+                    session.total_pnl = session.total_pnl - pnl_delta;
+                }
+            } else {
+                // Adding positive to positive
+                session.total_pnl = session.total_pnl + pnl_delta;
+            }
+        } else {
+            // Adding negative (loss)
+            if (session.pnl_is_negative) {
+                // Adding negative to negative
+                session.total_pnl = session.total_pnl + pnl_delta;
+            } else {
+                // Adding negative to positive
+                if (pnl_delta >= session.total_pnl) {
+                    session.total_pnl = pnl_delta - session.total_pnl;
+                    session.pnl_is_negative = true;
+                } else {
+                    session.total_pnl = session.total_pnl - pnl_delta;
+                }
+            }
+        };
 
         if (won) {
             session.wins = session.wins + 1;
@@ -333,7 +367,7 @@ module algoarena::arena {
         session.hired_agents = vector::empty<Agent>();
 
         // Update leaderboard
-        update_leaderboard(admin_addr, player, session.points, session.wins, session.total_pnl);
+        update_leaderboard(admin_addr, player, session.points, session.wins, session.total_pnl, session.pnl_is_negative);
     }
 
     // ==================
@@ -373,7 +407,8 @@ module algoarena::arena {
         player: address,
         points: u64,
         wins: u64,
-        total_pnl: i64
+        total_pnl: u64,
+        pnl_is_negative: bool
     ) acquires Leaderboard {
         let leaderboard = borrow_global_mut<Leaderboard>(game_admin);
 
@@ -388,6 +423,7 @@ module algoarena::arena {
                 entry.points = points;
                 entry.wins = wins;
                 entry.total_pnl = total_pnl;
+                entry.pnl_is_negative = pnl_is_negative;
                 found = true;
                 break
             };
@@ -400,6 +436,7 @@ module algoarena::arena {
                 points,
                 wins,
                 total_pnl,
+                pnl_is_negative,
             });
         };
 
@@ -423,12 +460,12 @@ module algoarena::arena {
     }
 
     #[view]
-    public fun get_player_stats(player: address): (i64, u64, u64, u64) acquires PlayerSession {
+    public fun get_player_stats(player: address): (u64, bool, u64, u64, u64) acquires PlayerSession {
         if (!exists<PlayerSession>(player)) {
-            return (0, 0, 0, 0)
+            return (0, false, 0, 0, 0)
         };
         let session = borrow_global<PlayerSession>(player);
-        (session.total_pnl, session.wins, session.losses, session.points)
+        (session.total_pnl, session.pnl_is_negative, session.wins, session.losses, session.points)
     }
 
     #[view]
