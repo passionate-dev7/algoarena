@@ -65,11 +65,20 @@ export default function Home() {
     isConnected: isSocketConnected,
     gameState,
     currentPrice,
+    currentAsset,
+    assetIcon,
     priceHistory,
     playerState,
     roundResult,
     timeRemaining,
+    isVotingPhase,
+    votingTimeRemaining,
+    availableAssets,
+    voteResults,
+    myVote,
+    roundStartPrice,
     notifyAgentHired,
+    voteForAsset,
   } = useGameSocket(playerAddress);
 
   // Local UI state
@@ -229,6 +238,43 @@ export default function Home() {
       <div className="z-10 w-full max-w-6xl grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Main game area (3 cols) */}
         <div className="lg:col-span-3 space-y-6">
+          {/* Voting Phase UI */}
+          {isVotingPhase && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-4 border-primary p-6"
+            >
+              <div className="text-center mb-4">
+                <h2 className="text-2xl font-bold text-primary uppercase">
+                  Vote for Next Asset
+                </h2>
+                <p className="text-zinc-400">
+                  Time remaining: <span className="text-white font-mono">{votingTimeRemaining}s</span>
+                </p>
+              </div>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {availableAssets.map((asset) => (
+                  <button
+                    key={asset.symbol}
+                    onClick={() => voteForAsset(asset.symbol)}
+                    className={`p-4 border-2 transition-all ${
+                      myVote === asset.symbol
+                        ? "border-primary bg-primary/20"
+                        : "border-white/20 hover:border-white/50"
+                    }`}
+                  >
+                    <div className="text-2xl mb-1">{asset.icon}</div>
+                    <div className="text-xs font-mono">{asset.symbol.split("/")[0]}</div>
+                    <div className="text-xs text-zinc-500 mt-1">
+                      {voteResults[asset.symbol] || 0} votes
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
           {/* Round Timer */}
           <RoundTimer
             roundId={gameState?.currentRoundId || 0}
@@ -236,12 +282,15 @@ export default function Home() {
             isActive={gameState?.isRoundActive || false}
           />
 
-          {/* Arena */}
+          {/* Arena with Asset Label */}
           <Arena
             priceHistory={priceHistory}
             currentPrice={currentPrice}
+            currentAsset={currentAsset}
+            assetIcon={assetIcon}
             agents={playerState?.agents || []}
             isRoundActive={gameState?.isRoundActive || false}
+            roundStartPrice={roundStartPrice}
           />
 
           {/* Player Stats */}
@@ -253,6 +302,20 @@ export default function Home() {
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
+                  {/* Round Start Price */}
+                  {roundStartPrice && (
+                    <>
+                      <div>
+                        <div className="text-xs text-yellow-400 uppercase font-bold">
+                          Round Start
+                        </div>
+                        <div className="font-mono text-xl font-bold text-yellow-400">
+                          ${roundStartPrice.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="h-10 w-px bg-white/20" />
+                    </>
+                  )}
                   <div>
                     <div className="text-xs text-zinc-400 uppercase">
                       Your PnL

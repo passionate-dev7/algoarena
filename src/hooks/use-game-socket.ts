@@ -30,11 +30,21 @@ export interface PlayerUpdate {
   agents: AgentInfo[];
 }
 
+export interface AssetInfo {
+  symbol: string;
+  icon: string;
+}
+
 export interface GameState {
   currentRoundId: number;
   roundStartTime: number;
   roundEndTime: number;
   isRoundActive: boolean;
+  isVotingPhase: boolean;
+  votingEndTime: number;
+  currentAsset: string;
+  assetIcon: string;
+  availableAssets: AssetInfo[];
   currentPrice: number;
   priceHistory: PriceCandle[];
 }
@@ -45,15 +55,28 @@ export interface RoundResult {
   winner: { address: string; pnl: number } | null;
 }
 
+export interface VoteResults {
+  [asset: string]: number;
+}
+
 export function useGameSocket(playerAddress: string | undefined) {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [currentPrice, setCurrentPrice] = useState(0);
+  const [currentAsset, setCurrentAsset] = useState("BTC/USD");
+  const [assetIcon, setAssetIcon] = useState("₿");
   const [priceHistory, setPriceHistory] = useState<PriceCandle[]>([]);
   const [playerState, setPlayerState] = useState<PlayerUpdate | null>(null);
   const [roundResult, setRoundResult] = useState<RoundResult | null>(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
+  const [isVotingPhase, setIsVotingPhase] = useState(false);
+  const [votingTimeRemaining, setVotingTimeRemaining] = useState(0);
+  const [availableAssets, setAvailableAssets] = useState<AssetInfo[]>([]);
+  const [voteResults, setVoteResults] = useState<VoteResults>({});
+  const [myVote, setMyVote] = useState<string | null>(null);
+  const [roundStartPrice, setRoundStartPrice] = useState<number | null>(null);
+  const currentRoundIdRef = useRef<number>(0);
 
   useEffect(() => {
     const socket = io(SERVER_URL, {
@@ -75,14 +98,35 @@ export function useGameSocket(playerAddress: string | undefined) {
     socket.on("game-state", (state: GameState) => {
       setGameState(state);
       setCurrentPrice(state.currentPrice);
+      setCurrentAsset(state.currentAsset || "BTC/USD");
+      setAssetIcon(state.assetIcon || "₿");
       setPriceHistory(state.priceHistory);
+      setAvailableAssets(state.availableAssets || []);
+      setIsVotingPhase(state.isVotingPhase || false);
+
+      // Track round changes and reset start price for new rounds
+      if (state.currentRoundId !== currentRoundIdRef.current) {
+        currentRoundIdRef.current = state.currentRoundId;
+        // Set start price from first candle if available, otherwise reset
+        if (state.priceHistory && state.priceHistory.length > 0) {
+          setRoundStartPrice(state.priceHistory[0].open);
+        } else {
+          setRoundStartPrice(null);
+        }
+      }
     });
 
-    socket.on("price-update", (data: { price: number; candle: PriceCandle }) => {
+    socket.on("price-update", (data: { price: number; candle: PriceCandle; asset: string; assetIcon: string }) => {
       setCurrentPrice(data.price);
+      setCurrentAsset(data.asset || "BTC/USD");
+      setAssetIcon(data.assetIcon || "₿");
       setPriceHistory((prev) => {
         const updated = [...prev, data.candle];
-        return updated.slice(-60); // Keep last 60 candles
+        // Capture starting price from first candle of the round
+        if (prev.length === 0 && data.candle) {
+          setRoundStartPrice(data.candle.open);
+        }
+        return updated.slice(-60);
       });
     });
 
@@ -90,7 +134,14 @@ export function useGameSocket(playerAddress: string | undefined) {
       setPlayerState(data);
     });
 
-    socket.on("round-started", (data: { roundId: number; startTime: number; endTime: number }) => {
+    socket.on("round-started", (data: { roundId: number; startTime: number; endTime: number; asset: string; assetIcon: string }) => {
+      console.log(`Round ${data.roundId} started on ${data.asset}`);
+      currentRoundIdRef.current = data.roundId;
+      setCurrentAsset(data.asset);
+      setAssetIcon(data.assetIcon);
+      setIsVotingPhase(false);
+      setPriceHistory([]); // Clear for new asset
+      setRoundStartPrice(null); // Will be set from first price update
       setGameState((prev) =>
         prev
           ? {
@@ -99,15 +150,38 @@ export function useGameSocket(playerAddress: string | undefined) {
               roundStartTime: data.startTime,
               roundEndTime: data.endTime,
               isRoundActive: true,
+              isVotingPhase: false,
+              currentAsset: data.asset,
+              assetIcon: data.assetIcon,
             }
           : null
       );
       setRoundResult(null);
+      setMyVote(null);
     });
 
     socket.on("round-ended", (result: RoundResult) => {
       setRoundResult(result);
       setGameState((prev) => (prev ? { ...prev, isRoundActive: false } : null));
+    });
+
+    socket.on("voting-started", (data: { assets: AssetInfo[]; votingEndTime: number }) => {
+      setIsVotingPhase(true);
+      setAvailableAssets(data.assets);
+      setVoteResults({});
+      setRoundStartPrice(null); // Clear start price during voting phase
+      setPriceHistory([]); // Clear price history for new asset selection
+      setGameState((prev) => (prev ? { ...prev, isVotingPhase: true, votingEndTime: data.votingEndTime } : null));
+    });
+
+    socket.on("voting-ended", (data: { winningAsset: string; voteResults: VoteResults; icon: string }) => {
+      setIsVotingPhase(false);
+      setCurrentAsset(data.winningAsset);
+      setAssetIcon(data.icon);
+    });
+
+    socket.on("vote-update", (data: { voteResults: VoteResults; voterAddress: string; votedAsset: string }) => {
+      setVoteResults(data.voteResults);
     });
 
     socket.on("agent-confirmed", (data: { agent: AgentInfo }) => {
@@ -130,7 +204,7 @@ export function useGameSocket(playerAddress: string | undefined) {
     }
   }, [playerAddress, isConnected]);
 
-  // Update time remaining
+  // Update time remaining for round
   useEffect(() => {
     if (!gameState?.isRoundActive || !gameState.roundEndTime) {
       setTimeRemaining(0);
@@ -145,6 +219,21 @@ export function useGameSocket(playerAddress: string | undefined) {
     return () => clearInterval(interval);
   }, [gameState?.isRoundActive, gameState?.roundEndTime]);
 
+  // Update voting time remaining
+  useEffect(() => {
+    if (!isVotingPhase || !gameState?.votingEndTime) {
+      setVotingTimeRemaining(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, gameState.votingEndTime - Date.now());
+      setVotingTimeRemaining(Math.floor(remaining / 1000));
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [isVotingPhase, gameState?.votingEndTime]);
+
   const notifyAgentHired = useCallback(
     (agentType: string, accessToken: string) => {
       if (socketRef.current && playerAddress) {
@@ -158,14 +247,36 @@ export function useGameSocket(playerAddress: string | undefined) {
     [playerAddress]
   );
 
+  const voteForAsset = useCallback(
+    (asset: string) => {
+      if (socketRef.current && playerAddress && isVotingPhase) {
+        socketRef.current.emit("vote-asset", {
+          address: playerAddress,
+          asset,
+        });
+        setMyVote(asset);
+      }
+    },
+    [playerAddress, isVotingPhase]
+  );
+
   return {
     isConnected,
     gameState,
     currentPrice,
+    currentAsset,
+    assetIcon,
     priceHistory,
     playerState,
     roundResult,
     timeRemaining,
+    isVotingPhase,
+    votingTimeRemaining,
+    availableAssets,
+    voteResults,
+    myVote,
+    roundStartPrice,
     notifyAgentHired,
+    voteForAsset,
   };
 }

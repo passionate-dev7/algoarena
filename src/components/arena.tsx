@@ -8,34 +8,44 @@ import { cn } from "@/lib/utils";
 interface ArenaProps {
   priceHistory: PriceCandle[];
   currentPrice: number;
+  currentAsset?: string;
+  assetIcon?: string;
   agents: AgentInfo[];
   isRoundActive: boolean;
+  roundStartPrice?: number | null;
 }
 
 export function Arena({
   priceHistory,
   currentPrice,
+  currentAsset = "BTC/USD",
+  assetIcon = "₿",
   agents,
   isRoundActive,
+  roundStartPrice,
 }: ArenaProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Calculate price range for scaling
+  // Calculate price range for scaling (includes starting price so it stays visible)
   const { minPrice, maxPrice, priceRange } = useMemo(() => {
     if (priceHistory.length === 0) {
       return { minPrice: 0, maxPrice: 100, priceRange: 100 };
     }
     const prices = priceHistory.flatMap((c) => [c.high, c.low]);
+    // Include starting price in range calculation so line always stays visible
+    if (roundStartPrice) {
+      prices.push(roundStartPrice);
+    }
     const min = Math.min(...prices);
     const max = Math.max(...prices);
     const range = max - min || 1;
-    const padding = range * 0.1;
+    const padding = range * 0.15; // Slightly more padding for breathing room
     return {
       minPrice: min - padding,
       maxPrice: max + padding,
       priceRange: range + padding * 2,
     };
-  }, [priceHistory]);
+  }, [priceHistory, roundStartPrice]);
 
   // Draw candlestick chart
   useEffect(() => {
@@ -69,6 +79,45 @@ export function Arena({
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
       ctx.stroke();
+    }
+
+    // Draw starting price reference line and PnL zones
+    if (roundStartPrice && priceHistory.length > 0) {
+      const startPrice = roundStartPrice;
+      const startY =
+        height - ((startPrice - minPrice) / priceRange) * height * 0.9 - height * 0.05;
+
+      // Draw profit zone (above starting price)
+      ctx.fillStyle = "rgba(34, 197, 94, 0.08)"; // Green tint
+      ctx.fillRect(0, 0, width, startY);
+
+      // Draw loss zone (below starting price)
+      ctx.fillStyle = "rgba(239, 68, 68, 0.08)"; // Red tint
+      ctx.fillRect(0, startY, width, height - startY);
+
+      // Draw thick starting price line
+      ctx.strokeStyle = "#FFD700"; // Gold color
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(0, startY);
+      ctx.lineTo(width, startY);
+      ctx.stroke();
+
+      // Draw label
+      ctx.fillStyle = "#FFD700";
+      ctx.font = "bold 13px monospace";
+      ctx.textAlign = "left";
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = 4;
+      ctx.fillText(`START $${startPrice.toFixed(2)}`, 10, startY - 8);
+      ctx.shadowBlur = 0;
+
+      // Draw right-side label too
+      ctx.textAlign = "right";
+      ctx.shadowBlur = 4;
+      ctx.fillText(`$${startPrice.toFixed(2)}`, width - 10, startY - 8);
+      ctx.shadowBlur = 0;
     }
 
     // Draw candles
@@ -118,7 +167,7 @@ export function Arena({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw agent positions
+    // Draw agent positions and PnL indicators
     agents.forEach((agent, idx) => {
       if (agent.position) {
         const entryY =
@@ -138,17 +187,74 @@ export function Arena({
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Agent indicator
-        ctx.fillStyle = color;
-        ctx.font = "bold 12px monospace";
+        // Calculate current PnL
+        const currentPnL = agent.position.type === "LONG"
+          ? ((currentPrice - agent.position.entryPrice) / agent.position.entryPrice) * 100
+          : ((agent.position.entryPrice - currentPrice) / agent.position.entryPrice) * 100;
+
+        // Draw PnL bubble at top-right (after ticker badge)
+        const bubbleWidth = 110;
+        const bubbleHeight = 45;
+        const bubbleX = width - 20 - bubbleWidth - (idx * (bubbleWidth + 10));
+        const bubbleY = 35; // Below the price display
+
+        // Bubble background
+        ctx.fillStyle = currentPnL >= 0 ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)";
+        ctx.fillRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
+
+        // Bubble border
+        ctx.strokeStyle = currentPnL >= 0 ? "#22c55e" : "#ef4444";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight);
+
+        // Agent icon/name
+        const agentIcon = agent.type === "BULL" ? "🐂" : agent.type === "BEAR" ? "🐻" : "🦀";
+        ctx.font = "16px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText(agentIcon, bubbleX + 5, bubbleY + 20);
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 10px monospace";
+        ctx.fillText(agent.type, bubbleX + 28, bubbleY + 15);
+
+        // PnL value
+        ctx.fillStyle = currentPnL >= 0 ? "#22c55e" : "#ef4444";
+        ctx.font = "bold 16px monospace";
+        ctx.textAlign = "center";
+        ctx.shadowColor = "#000";
+        ctx.shadowBlur = 3;
         ctx.fillText(
-          `${agent.type[0]}${agent.position.type === "LONG" ? "L" : "S"}`,
-          width - 30,
-          entryY - 5
+          `${currentPnL >= 0 ? "+" : ""}${currentPnL.toFixed(2)}%`,
+          bubbleX + bubbleWidth / 2,
+          bubbleY + 36
         );
+        ctx.shadowBlur = 0;
+
+        // Entry marker dot
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(width - 40, entryY, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // White border on dot
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Entry price label
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 11px monospace";
+        ctx.textAlign = "right";
+        ctx.shadowBlur = 3;
+        ctx.fillText(
+          `$${agent.position.entryPrice.toFixed(2)}`,
+          width - 50,
+          entryY + 4
+        );
+        ctx.shadowBlur = 0;
       }
     });
-  }, [priceHistory, currentPrice, agents, minPrice, maxPrice, priceRange]);
+  }, [priceHistory, currentPrice, agents, minPrice, maxPrice, priceRange, roundStartPrice]);
 
   return (
     <div className="relative w-full h-64 bg-black border-4 border-white overflow-hidden">
@@ -168,6 +274,14 @@ export function Arena({
         style={{ imageRendering: "pixelated" }}
       />
 
+      {/* Asset Label - Prominent badge */}
+      <div className="absolute top-3 left-3 z-30">
+        <div className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 border-2 border-white shadow-lg">
+          <span className="text-2xl">{assetIcon}</span>
+          <span className="font-mono text-lg text-white font-black tracking-wide">{currentAsset}</span>
+        </div>
+      </div>
+
       {/* Current price overlay */}
       <div className="absolute top-2 right-4 z-20">
         <motion.div
@@ -176,7 +290,7 @@ export function Arena({
           animate={{ scale: 1, opacity: 1 }}
           className="font-mono text-2xl text-white font-bold"
         >
-          ${currentPrice.toFixed(2)}
+          ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </motion.div>
       </div>
 

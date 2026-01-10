@@ -78,7 +78,7 @@ export function Leaderboard({ currentPlayerAddress }: LeaderboardProps) {
   }
 
   return (
-    <div className="bg-card border-4 border-white p-4">
+    <div className="bg-card border-4 border-white p-4 overflow-hidden">
       <h3 className="text-lg font-bold uppercase mb-4 text-primary">
         Leaderboard
       </h3>
@@ -91,32 +91,32 @@ export function Leaderboard({ currentPlayerAddress }: LeaderboardProps) {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.05 }}
             className={cn(
-              "flex items-center gap-3 p-2 border-2",
+              "flex items-center gap-2 p-2 border-2 overflow-hidden",
               entry.address === currentPlayerAddress
                 ? "border-primary bg-primary/10"
                 : "border-white/20 bg-black/30"
             )}
           >
             {/* Rank */}
-            <div className="w-8 flex justify-center">{getRankIcon(idx + 1)}</div>
+            <div className="w-6 flex-shrink-0 flex justify-center">{getRankIcon(idx + 1)}</div>
 
-            {/* Address */}
-            <div className="flex-1 font-mono text-sm">
-              {formatAddress(entry.address)}
-              {entry.address === currentPlayerAddress && (
-                <span className="text-primary ml-2">(You)</span>
-              )}
-            </div>
-
-            {/* Agents */}
-            <div className="text-xs text-zinc-400">
-              {entry.agentCount} agent{entry.agentCount !== 1 ? "s" : ""}
+            {/* Address & Agents */}
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <div className="font-mono text-sm truncate">
+                {formatAddress(entry.address)}
+                {entry.address === currentPlayerAddress && (
+                  <span className="text-primary ml-1">(You)</span>
+                )}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {entry.agentCount} agent{entry.agentCount !== 1 ? "s" : ""}
+              </div>
             </div>
 
             {/* PnL */}
             <div
               className={cn(
-                "font-mono font-bold text-sm min-w-[80px] text-right",
+                "font-mono font-bold text-sm flex-shrink-0",
                 entry.pnl >= 0 ? "text-green-400" : "text-red-400"
               )}
             >
