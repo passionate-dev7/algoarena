@@ -1,6 +1,6 @@
 "use client";
 
-import { useWallet, WalletName } from "@aptos-labs/wallet-adapter-react";
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { usePrivy } from "@privy-io/react-auth";
 import { Button } from "@/components/ui/button";
 import { X, Wallet, Mail, Chrome, Smartphone } from "lucide-react";
@@ -15,7 +15,7 @@ export function WalletModal({ isOpen, onClose }: WalletModalProps) {
   const { wallets, connect, connected } = useWallet();
   const { login, authenticated, ready } = usePrivy();
 
-  const handleWalletConnect = async (walletName: WalletName) => {
+  const handleWalletConnect = async (walletName: string) => {
     try {
       await connect(walletName);
       onClose();

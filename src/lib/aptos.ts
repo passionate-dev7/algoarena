@@ -16,8 +16,8 @@ export const MOVEMENT_CONFIGS = {
   },
 };
 
-// Current network - set to testnet for hackathon
-export const CURRENT_NETWORK = "testnet" as keyof typeof MOVEMENT_CONFIGS;
+// Current network - using mainnet (testnet is down)
+export const CURRENT_NETWORK = "mainnet" as keyof typeof MOVEMENT_CONFIGS;
 
 // Initialize Aptos SDK with Movement network
 export const aptos = new Aptos(

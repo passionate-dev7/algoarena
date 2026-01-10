@@ -194,7 +194,7 @@ export function AgentCard({
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  Boost (0.05 M)
+                  Boost (0.0005 M)
                 </>
               )}
             </Button>

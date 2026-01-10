@@ -1,46 +1,43 @@
+// This file is kept for backwards compatibility but the main x402 logic
+// is now in hooks/use-x402-payment.ts which uses the x402plus library
 
 export type PaymentRequest = {
-    realm: string;
-    amount: number; // in USDC/MOVE
-    currency: string;
-    recipient: string;
+  realm: string;
+  amount: number;
+  currency: string;
+  recipient: string;
 };
 
 export type PaymentStatus = "pending" | "paid" | "failed";
 
+// Legacy mock functions - kept for reference
+// The real implementation is in hooks/use-x402-payment.ts
 export async function requestX402Payment(
-    resourceId: string
+  resourceId: string
 ): Promise<{ status: number; headers: any; paymentDetails?: PaymentRequest }> {
-    // Simulate an HTTP 402 response from an agent service provider
-    console.log(`Requesting resource: ${resourceId}`);
+  console.warn("Using legacy x402 mock - use useX402Payment hook instead");
 
-    // Mock delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Return a 402 Payment Required
-    return {
-        status: 402,
-        headers: {
-            "www-authenticate": 'x402 realm="AlgoArena Agent Service", amount="0.1", currency="MOVE", recipient="0xAgentPool"',
-        },
-        paymentDetails: {
-            realm: "AlgoArena Agent Service",
-            amount: 0.1,
-            currency: "MOVE",
-            recipient: "0xAgentPool",
-        },
-    };
+  return {
+    status: 402,
+    headers: {
+      "www-authenticate": `x402 realm="AlgoArena Agent Service", amount="0.1", currency="MOVE", recipient="0xAgentPool"`,
+    },
+    paymentDetails: {
+      realm: "AlgoArena Agent Service",
+      amount: 0.1,
+      currency: "MOVE",
+      recipient: "0xAgentPool",
+    },
+  };
 }
 
 export async function submitPaymentProof(
-    paymentHash: string
+  paymentHash: string
 ): Promise<{ success: boolean; token: string }> {
-    // Simulate verifying the payment on-chain
-    console.log(`Verifying payment tx: ${paymentHash}`);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  console.warn("Using legacy x402 mock - use useX402Payment hook instead");
 
-    return {
-        success: true,
-        token: "access_token_" + Math.random().toString(36).substring(7),
-    };
+  return {
+    success: true,
+    token: "access_token_" + Math.random().toString(36).substring(7),
+  };
 }
