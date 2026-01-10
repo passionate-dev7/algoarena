@@ -18,20 +18,50 @@ const io = new SocketServer(httpServer, {
 
 const PORT = process.env.PORT || 4402;
 
-// Movement Network Configuration
-const MOVEMENT_RPC = process.env.MOVEMENT_RPC || "https://testnet.movementnetwork.xyz/v1";
+// Movement Network Configuration - Using Mainnet (testnet is down)
+const MOVEMENT_RPC = process.env.MOVEMENT_RPC || "https://full.mainnet.movementinfra.xyz/v1";
 const aptos = new Aptos(new AptosConfig({ network: Network.CUSTOM, fullnode: MOVEMENT_RPC }));
 
 // Pyth Hermes Client for price feeds
 const hermesClient = new HermesClient("https://hermes.pyth.network");
 
-// Price feed IDs (Pyth)
-const PRICE_FEEDS = {
-  "BTC/USD": "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-  "ETH/USD": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-  "SOL/USD": "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
-  "MOVE/USD": "0x44a93dddd8effa54ea51076c4e851b6cbbfd938e82eb90197de38fe8876bb66e",
+// Price feed IDs (Pyth) - All available trading pairs
+// Using Stable Price Feed IDs from https://pyth.network/developers/price-feed-ids
+const PRICE_FEEDS: Record<string, { id: string; decimals: number; icon: string }> = {
+  "BTC/USD": {
+    id: "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+    decimals: 8,
+    icon: "₿"
+  },
+  "ETH/USD": {
+    id: "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    decimals: 8,
+    icon: "Ξ"
+  },
+  "SOL/USD": {
+    id: "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+    decimals: 8,
+    icon: "◎"
+  },
+  "MOVE/USD": {
+    id: "0x6bf748c908767baa762a1563d454ebec2d5108f8ee36d806aadacc8f0a075b6d",
+    decimals: 8,
+    icon: "M"
+  },
+  "DOGE/USD": {
+    id: "0xdcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c",
+    decimals: 8,
+    icon: "Ð"
+  },
+  "AVAX/USD": {
+    id: "0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7",
+    decimals: 8,
+    icon: "A"
+  },
 };
+
+// Available assets for voting
+const AVAILABLE_ASSETS = Object.keys(PRICE_FEEDS);
 
 // Game State
 interface GameState {
@@ -39,9 +69,14 @@ interface GameState {
   roundStartTime: number;
   roundEndTime: number;
   isRoundActive: boolean;
+  isVotingPhase: boolean;
+  votingEndTime: number;
+  currentAsset: string;
+  assetVotes: Map<string, Set<string>>; // asset -> Set of voter addresses
   players: Map<string, PlayerState>;
   priceHistory: PriceCandle[];
   currentPrice: number;
+  x402Transactions: Array<{ address: string; txHash: string; amount: string; timestamp: number }>;
 }
 
 interface PlayerState {
@@ -89,16 +124,21 @@ const gameState: GameState = {
   roundStartTime: 0,
   roundEndTime: 0,
   isRoundActive: false,
+  isVotingPhase: false,
+  votingEndTime: 0,
+  currentAsset: "BTC/USD",
+  assetVotes: new Map(),
   players: new Map(),
   priceHistory: [],
   currentPrice: 0,
+  x402Transactions: [],
 };
 
 // Agent hiring tokens (JWT-like access tokens)
 const accessTokens = new Map<string, { agentType: string; expiresAt: number }>();
 
-// Treasury address for payments
-const TREASURY_ADDRESS = process.env.MOVEMENT_PAY_TO || "0x1";
+// Treasury address for payments (your mainnet wallet)
+const TREASURY_ADDRESS = process.env.MOVEMENT_PAY_TO || "0x8fe3cb1e702d46b0540757dcdbe0a1ea2d9d21ccca16bdd63910d0783d2c3288";
 
 // ==================
 // x402 Paywall Setup
@@ -118,7 +158,7 @@ app.use(
       "GET /api/hire/bull": {
         network: "movement",
         asset: "0x1::aptos_coin::AptosCoin",
-        maxAmountRequired: "10000000", // 0.1 MOVE
+        maxAmountRequired: "100000", // 0.001 MOVE (minimal mainnet testing)
         description: "Hire Bullish Bob for current round",
         mimeType: "application/json",
         maxTimeoutSeconds: 600,
@@ -126,7 +166,7 @@ app.use(
       "GET /api/hire/bear": {
         network: "movement",
         asset: "0x1::aptos_coin::AptosCoin",
-        maxAmountRequired: "10000000", // 0.1 MOVE
+        maxAmountRequired: "100000", // 0.001 MOVE (minimal mainnet testing)
         description: "Hire Bearish Ben for current round",
         mimeType: "application/json",
         maxTimeoutSeconds: 600,
@@ -134,7 +174,7 @@ app.use(
       "GET /api/hire/crab": {
         network: "movement",
         asset: "0x1::aptos_coin::AptosCoin",
-        maxAmountRequired: "5000000", // 0.05 MOVE
+        maxAmountRequired: "100000", // 0.001 MOVE (minimal mainnet testing)
         description: "Hire Crab Carol for current round",
         mimeType: "application/json",
         maxTimeoutSeconds: 600,
@@ -142,7 +182,7 @@ app.use(
       "GET /api/boost": {
         network: "movement",
         asset: "0x1::aptos_coin::AptosCoin",
-        maxAmountRequired: "5000000", // 0.05 MOVE
+        maxAmountRequired: "50000", // 0.0005 MOVE (minimal mainnet testing)
         description: "Boost an active agent",
         mimeType: "application/json",
         maxTimeoutSeconds: 600,
@@ -293,9 +333,17 @@ function generateAccessToken(playerAddress: string, agentType: string): string {
 // Price Feed
 // ==================
 
-async function fetchPythPrice(): Promise<number> {
+async function fetchPythPrice(asset?: string): Promise<number> {
+  const targetAsset = asset || gameState.currentAsset;
+  const feedInfo = PRICE_FEEDS[targetAsset];
+
+  if (!feedInfo) {
+    console.error(`Unknown asset: ${targetAsset}`);
+    return gameState.currentPrice || 95000;
+  }
+
   try {
-    const priceUpdates = await hermesClient.getLatestPriceUpdates([PRICE_FEEDS["BTC/USD"]]);
+    const priceUpdates = await hermesClient.getLatestPriceUpdates([feedInfo.id]);
     if (priceUpdates.parsed && priceUpdates.parsed.length > 0) {
       const priceData = priceUpdates.parsed[0].price;
       // Pyth prices have an exponent, typically -8
@@ -303,10 +351,31 @@ async function fetchPythPrice(): Promise<number> {
       return price;
     }
   } catch (error) {
-    console.error("Error fetching Pyth price:", error);
+    console.error(`Error fetching Pyth price for ${targetAsset}:`, error);
   }
   // Fallback to simulated price
   return gameState.currentPrice || 95000;
+}
+
+// Determine winning asset from votes
+function getWinningAsset(): string {
+  let maxVotes = 0;
+  let winner = "BTC/USD";
+
+  gameState.assetVotes.forEach((voters, asset) => {
+    if (voters.size > maxVotes) {
+      maxVotes = voters.size;
+      winner = asset;
+    }
+  });
+
+  // If no votes, pick random
+  if (maxVotes === 0) {
+    const assets = Object.keys(PRICE_FEEDS);
+    winner = assets[Math.floor(Math.random() * assets.length)];
+  }
+
+  return winner;
 }
 
 // ==================
@@ -346,6 +415,8 @@ async function gameLoop() {
     price: newPrice,
     candle,
     timestamp: now,
+    asset: gameState.currentAsset,
+    assetIcon: PRICE_FEEDS[gameState.currentAsset]?.icon || "₿",
   });
 
   // Check if round should end
@@ -357,82 +428,106 @@ async function gameLoop() {
 function processAgentTrades(candle: PriceCandle) {
   const priceChange = candle.close - candle.open;
   const priceChangePercent = (priceChange / candle.open) * 100;
+  const now = Date.now();
 
   gameState.players.forEach((player, address) => {
     player.hiredAgents.forEach((agent) => {
-      // Agent trading logic based on strategy
-      const shouldTrade = Math.random() < 0.3; // 30% chance to trade per tick
+      const positionAge = agent.position ? now - agent.position.timestamp : 0;
+      const positionAgeSeconds = positionAge / 1000;
 
-      if (shouldTrade) {
-        if (agent.type === "BULL") {
-          // Bullish Bob: Buy dips, take profit on pumps
-          if (priceChangePercent < -0.1 && !agent.position) {
-            // Open long on dip
+      // Calculate unrealized PnL for open positions
+      let unrealizedPnl = 0;
+      if (agent.position) {
+        unrealizedPnl = agent.position.type === "LONG"
+          ? (candle.close - agent.position.entryPrice) * agent.position.size / agent.position.entryPrice
+          : (agent.position.entryPrice - candle.close) * agent.position.size / agent.position.entryPrice;
+      }
+
+      if (agent.type === "BULL") {
+        // Bullish Bob: Aggressive long trader, buys often, holds for gains
+        if (!agent.position) {
+          // Open long when price dips OR randomly with 15% chance
+          if (priceChangePercent < -0.005 || Math.random() < 0.15) {
             agent.position = {
               type: "LONG",
               entryPrice: candle.close,
-              size: 1000 * (agent.power / 100),
-              timestamp: Date.now(),
+              size: 1000 * (agent.power / 100) * (agent.isBoosted ? 1.5 : 1),
+              timestamp: now,
             };
-          } else if (priceChangePercent > 0.2 && agent.position?.type === "LONG") {
-            // Take profit
-            const pnl = (candle.close - agent.position.entryPrice) * agent.position.size / agent.position.entryPrice;
+            console.log(`[BULL] ${player.address.slice(0,8)} opened LONG at $${candle.close.toFixed(2)}`);
+          }
+        } else {
+          // Close position: take profit at +0.01%, stop loss at -0.02%, or after 15 seconds
+          const profitPercent = (unrealizedPnl / agent.position.size) * 100;
+          if (profitPercent > 0.01 || profitPercent < -0.02 || positionAgeSeconds > 15) {
             agent.trades.push({
               type: "LONG",
               entryPrice: agent.position.entryPrice,
               exitPrice: candle.close,
-              pnl,
-              timestamp: Date.now(),
+              pnl: unrealizedPnl,
+              timestamp: now,
             });
-            player.pnl += pnl;
+            player.pnl += unrealizedPnl;
+            console.log(`[BULL] ${player.address.slice(0,8)} closed LONG: PnL $${unrealizedPnl.toFixed(2)}`);
             agent.position = null;
           }
-        } else if (agent.type === "BEAR") {
-          // Bearish Ben: Short pumps, cover on dips
-          if (priceChangePercent > 0.1 && !agent.position) {
-            // Open short on pump
+        }
+      } else if (agent.type === "BEAR") {
+        // Bearish Ben: Aggressive short trader
+        if (!agent.position) {
+          // Open short when price pumps OR randomly with 15% chance
+          if (priceChangePercent > 0.005 || Math.random() < 0.15) {
             agent.position = {
               type: "SHORT",
               entryPrice: candle.close,
-              size: 1000 * (agent.power / 100),
-              timestamp: Date.now(),
+              size: 1000 * (agent.power / 100) * (agent.isBoosted ? 1.5 : 1),
+              timestamp: now,
             };
-          } else if (priceChangePercent < -0.2 && agent.position?.type === "SHORT") {
-            // Take profit
-            const pnl = (agent.position.entryPrice - candle.close) * agent.position.size / agent.position.entryPrice;
+            console.log(`[BEAR] ${player.address.slice(0,8)} opened SHORT at $${candle.close.toFixed(2)}`);
+          }
+        } else {
+          // Close position: take profit, stop loss, or time-based
+          const profitPercent = (unrealizedPnl / agent.position.size) * 100;
+          if (profitPercent > 0.01 || profitPercent < -0.02 || positionAgeSeconds > 15) {
             agent.trades.push({
               type: "SHORT",
               entryPrice: agent.position.entryPrice,
               exitPrice: candle.close,
-              pnl,
-              timestamp: Date.now(),
+              pnl: unrealizedPnl,
+              timestamp: now,
             });
-            player.pnl += pnl;
+            player.pnl += unrealizedPnl;
+            console.log(`[BEAR] ${player.address.slice(0,8)} closed SHORT: PnL $${unrealizedPnl.toFixed(2)}`);
             agent.position = null;
           }
-        } else if (agent.type === "CRAB") {
-          // Crab Carol: Range trading, small profits
-          if (Math.abs(priceChangePercent) > 0.05 && !agent.position) {
-            // Mean reversion trade
+        }
+      } else if (agent.type === "CRAB") {
+        // Crab Carol: Mean reversion scalper, trades frequently
+        if (!agent.position) {
+          // Trade on any small movement OR randomly with 20% chance
+          if (Math.abs(priceChangePercent) > 0.002 || Math.random() < 0.2) {
+            // Mean reversion: short if price went up, long if price went down
             agent.position = {
               type: priceChangePercent > 0 ? "SHORT" : "LONG",
               entryPrice: candle.close,
-              size: 500 * (agent.power / 100),
-              timestamp: Date.now(),
+              size: 500 * (agent.power / 100) * (agent.isBoosted ? 1.5 : 1),
+              timestamp: now,
             };
-          } else if (agent.position && Math.abs(priceChangePercent) < 0.02) {
-            // Close on range
-            const pnl = agent.position.type === "LONG"
-              ? (candle.close - agent.position.entryPrice) * agent.position.size / agent.position.entryPrice
-              : (agent.position.entryPrice - candle.close) * agent.position.size / agent.position.entryPrice;
+            console.log(`[CRAB] ${player.address.slice(0,8)} opened ${agent.position.type} at $${candle.close.toFixed(2)}`);
+          }
+        } else {
+          // Quick scalps: close after small profit or 10 seconds
+          const profitPercent = (unrealizedPnl / agent.position.size) * 100;
+          if (profitPercent > 0.005 || profitPercent < -0.01 || positionAgeSeconds > 10) {
             agent.trades.push({
               type: agent.position.type,
               entryPrice: agent.position.entryPrice,
               exitPrice: candle.close,
-              pnl,
-              timestamp: Date.now(),
+              pnl: unrealizedPnl,
+              timestamp: now,
             });
-            player.pnl += pnl;
+            player.pnl += unrealizedPnl;
+            console.log(`[CRAB] ${player.address.slice(0,8)} closed ${agent.position.type}: PnL $${unrealizedPnl.toFixed(2)}`);
             agent.position = null;
           }
         }
@@ -456,6 +551,55 @@ function processAgentTrades(candle: PriceCandle) {
   });
 }
 
+function startVotingPhase() {
+  gameState.isVotingPhase = true;
+  gameState.votingEndTime = Date.now() + 15000; // 15 seconds to vote
+  gameState.assetVotes = new Map();
+
+  // Initialize votes for all assets
+  AVAILABLE_ASSETS.forEach(asset => {
+    gameState.assetVotes.set(asset, new Set());
+  });
+
+  io.emit("voting-started", {
+    assets: AVAILABLE_ASSETS.map(a => ({
+      symbol: a,
+      icon: PRICE_FEEDS[a].icon,
+    })),
+    votingEndTime: gameState.votingEndTime,
+  });
+
+  console.log("Voting phase started - players choose next asset");
+
+  // End voting after 15 seconds
+  setTimeout(() => {
+    endVotingPhase();
+  }, 15000);
+}
+
+function endVotingPhase() {
+  gameState.isVotingPhase = false;
+  const winningAsset = getWinningAsset();
+  gameState.currentAsset = winningAsset;
+  gameState.priceHistory = []; // Clear history for new asset
+
+  const voteResults: Record<string, number> = {};
+  gameState.assetVotes.forEach((voters, asset) => {
+    voteResults[asset] = voters.size;
+  });
+
+  io.emit("voting-ended", {
+    winningAsset,
+    voteResults,
+    icon: PRICE_FEEDS[winningAsset].icon,
+  });
+
+  console.log(`Voting ended - ${winningAsset} selected with icon ${PRICE_FEEDS[winningAsset].icon}`);
+
+  // Start round immediately after voting
+  startRound();
+}
+
 function startRound() {
   gameState.currentRoundId++;
   gameState.roundStartTime = Date.now();
@@ -466,9 +610,11 @@ function startRound() {
     roundId: gameState.currentRoundId,
     startTime: gameState.roundStartTime,
     endTime: gameState.roundEndTime,
+    asset: gameState.currentAsset,
+    assetIcon: PRICE_FEEDS[gameState.currentAsset].icon,
   });
 
-  console.log(`Round ${gameState.currentRoundId} started`);
+  console.log(`Round ${gameState.currentRoundId} started on ${gameState.currentAsset}`);
 }
 
 function endRound() {
@@ -500,14 +646,13 @@ function endRound() {
 
   console.log(`Round ${gameState.currentRoundId} ended. Winner: ${rankings[0]?.address || "none"}`);
 
-  // Auto-start next round after 10 seconds
+  // Clear player agents and start voting phase after 5 seconds
   setTimeout(() => {
-    // Clear player agents for next round
     gameState.players.forEach((player) => {
       player.hiredAgents = [];
     });
-    startRound();
-  }, 10000);
+    startVotingPhase();
+  }, 5000);
 }
 
 // ==================
@@ -523,8 +668,17 @@ io.on("connection", (socket) => {
     roundStartTime: gameState.roundStartTime,
     roundEndTime: gameState.roundEndTime,
     isRoundActive: gameState.isRoundActive,
+    isVotingPhase: gameState.isVotingPhase,
+    votingEndTime: gameState.votingEndTime,
+    currentAsset: gameState.currentAsset,
+    assetIcon: PRICE_FEEDS[gameState.currentAsset]?.icon || "₿",
+    availableAssets: AVAILABLE_ASSETS.map(a => ({
+      symbol: a,
+      icon: PRICE_FEEDS[a].icon,
+    })),
     currentPrice: gameState.currentPrice,
     priceHistory: gameState.priceHistory.slice(-60),
+    x402Transactions: gameState.x402Transactions.slice(-10), // Last 10 transactions
   });
 
   // Player joins with their wallet address
@@ -584,6 +738,40 @@ io.on("connection", (socket) => {
     io.emit("player-count", { count: gameState.players.size });
   });
 
+  // Vote for next round's asset
+  socket.on("vote-asset", (data: { address: string; asset: string }) => {
+    const { address, asset } = data;
+
+    if (!gameState.isVotingPhase) {
+      socket.emit("error", { message: "Voting is not active" });
+      return;
+    }
+
+    if (!AVAILABLE_ASSETS.includes(asset)) {
+      socket.emit("error", { message: "Invalid asset" });
+      return;
+    }
+
+    // Remove previous vote from other assets
+    gameState.assetVotes.forEach((voters, _) => {
+      voters.delete(address);
+    });
+
+    // Add vote to selected asset
+    const voters = gameState.assetVotes.get(asset) || new Set();
+    voters.add(address);
+    gameState.assetVotes.set(asset, voters);
+
+    // Broadcast updated vote counts
+    const voteResults: Record<string, number> = {};
+    gameState.assetVotes.forEach((voters, asset) => {
+      voteResults[asset] = voters.size;
+    });
+
+    io.emit("vote-update", { voteResults, voterAddress: address, votedAsset: asset });
+    console.log(`${address.slice(0, 8)} voted for ${asset}`);
+  });
+
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
   });
@@ -593,17 +781,37 @@ io.on("connection", (socket) => {
 // Start Server
 // ==================
 
+// API endpoint to get available assets
+app.get("/api/assets", (_req, res) => {
+  res.json({
+    assets: AVAILABLE_ASSETS.map(a => ({
+      symbol: a,
+      icon: PRICE_FEEDS[a].icon,
+    })),
+    currentAsset: gameState.currentAsset,
+  });
+});
+
+// API endpoint to get x402 transaction proof
+app.get("/api/x402-transactions", (_req, res) => {
+  res.json({
+    transactions: gameState.x402Transactions,
+    treasuryAddress: TREASURY_ADDRESS,
+  });
+});
+
 httpServer.listen(PORT, async () => {
   console.log(`AlgoArena server running at http://localhost:${PORT}`);
   console.log(`Treasury address: ${TREASURY_ADDRESS}`);
+  console.log(`Available assets: ${AVAILABLE_ASSETS.join(", ")}`);
 
   // Initialize price
   gameState.currentPrice = await fetchPythPrice();
-  console.log(`Initial BTC price: $${gameState.currentPrice.toFixed(2)}`);
+  console.log(`Initial ${gameState.currentAsset} price: $${gameState.currentPrice.toFixed(2)}`);
 
   // Start game loop (every 1 second)
   setInterval(gameLoop, 1000);
 
-  // Start first round after 5 seconds
-  setTimeout(startRound, 5000);
+  // Start with voting phase after 5 seconds
+  setTimeout(startVotingPhase, 5000);
 });
