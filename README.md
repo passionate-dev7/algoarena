@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="public/logo.png" alt="AlgoArena Logo" width="200" />
-</p>
-
 <h1 align="center">AlgoArena</h1>
 
 <p align="center">
