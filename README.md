@@ -233,7 +233,7 @@ algoarena/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/algoarena.git
+git clone https://github.com/passionate-dev7/algoarena.git
 cd algoarena
 
 # 2. Install dependencies
@@ -349,46 +349,6 @@ movement move publish --named-addresses algoarena=YOUR_ADDRESS
 | `agent-hired` | Client -> Server | `{agentType, accessToken}` |
 | `vote-asset` | Client -> Server | `{asset}` |
 
----
-
-## Demo
-
-### Video Script
-
-For the complete demo video narration script, see **[DEMO_VIDEO_NARRATION.md](./DEMO_VIDEO_NARRATION.md)**.
-
-### Key Demo Moments
-
-1. **Wallet Connection** - Privy social login OR native wallet
-2. **x402 Payment** - One-click agent hiring with micropayment
-3. **Live Battle** - Watch agents trade on real price data
-4. **Boost Mechanic** - Mid-round power-up
-5. **Round Results** - PnL calculation and leaderboard update
-6. **Asset Voting** - Community chooses next trading pair
-
----
-
-## Hackathon Categories
-
-AlgoArena is built for the **Movement Encode M1 Hackathon**, targeting:
-
-| Category | Why AlgoArena |
-|----------|---------------|
-| **Best Gaming App** | Fun, competitive auto-battler with DeFi education |
-| **Best x402 App** | Novel micropayment flow for agent hiring |
-| **Best New DeFi App** | Live trading simulation with real price feeds |
-| **Best App Using Privy** | Seamless email/social wallet onboarding |
-| **People's Choice** | Unique concept, polished execution |
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open a Pull Request
 
 ---
 
@@ -408,10 +368,6 @@ MIT License - see [LICENSE](./LICENSE) for details.
 | Privy | https://privy.io |
 
 ---
-
-<p align="center">
-  <strong>Built with passion for Movement Encode M1 Hackathon</strong>
-</p>
 
 <p align="center">
   Trade Different. Win Together.
